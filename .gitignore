@@ -1,0 +1,8 @@
+# Created by .ignore support plugin (hsz.mobi)
+
+.idea/
+__pycache__/
+
+.env
+venv/
+config/static/playon-6dfe3-firebase-adminsdk-1zok1-8855bf7152.json

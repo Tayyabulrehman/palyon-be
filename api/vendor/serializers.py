@@ -4,7 +4,22 @@ from datetime import timedelta
 from rest_framework import serializers
 
 from api.serializers import DynamicFieldsModelSerializer
-from api.vendor.models import VenusImages, Slots, Venue
+from api.vendor.models import VenusImages, Slots, Venue, Vendor
+
+
+class VendorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Vendor
+        fields = (
+            "id",
+            "first_name",
+            "last_name",
+            "email",
+            "username",
+            "business_name",
+            "owner_name",
+            "image"
+        )
 
 
 class VenueImageSerializer(serializers.ModelSerializer):
@@ -62,9 +77,9 @@ class SlotSerializer(serializers.ModelSerializer):
 
         # Get the difference in seconds
         seconds_difference = time_difference.total_seconds()
-        if seconds_difference%(60*60)!=0:
-                raise serializers.ValidationError(
-                    "The time difference between start_date and end_date must be exactly 1 hour.")
+        if seconds_difference % (60 * 60) != 0:
+            raise serializers.ValidationError(
+                "The time difference between start_date and end_date must be exactly 1 hour.")
 
         return data
 
@@ -80,6 +95,7 @@ class VenueSerializer(DynamicFieldsModelSerializer):
     image_ids = serializers.ListField(child=serializers.IntegerField(), write_only=True)
     slots = SlotSerializer(allow_null=True, many=True, required=False, write_only=True)
     images = VenueImageSerializer(many=True, read_only=True)
+    facilities = serializers.ListField(child=serializers.CharField())
 
     class Meta:
         model = Venue
@@ -94,7 +110,8 @@ class VenueSerializer(DynamicFieldsModelSerializer):
             "type",
             "image_ids",
             "slots",
-            "images"
+            "images",
+            "facilities"
         )
 
     def update(self, instance, validated_data):
@@ -105,7 +122,9 @@ class VenueSerializer(DynamicFieldsModelSerializer):
         instance.price = validated_data.get("price", instance.price)
         instance.description = validated_data.get("description", instance.description)
         instance.type = validated_data.get("type", instance.type)
+        instance.facilities = validated_data.get("facilities", instance.facilities)
         images = validated_data.get("image_ids", None)
+
         if images:
             instance.venue_images.exclude(id__in=images).delete()
             VenusImages.objects.filter(id__in=images).update(venus=instance)

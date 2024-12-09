@@ -6,3 +6,4 @@ __pycache__/
 .env
 venv/
 config/static/playon-6dfe3-firebase-adminsdk-1zok1-8855bf7152.json
+config/media/

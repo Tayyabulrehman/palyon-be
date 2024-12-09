@@ -1,9 +1,11 @@
 from rest_framework import serializers
 
+from api.bookings.messages_content import MsgTyp, get_push_notification_content
 from api.bookings.models import BookingSlots, Booking, BookingStatus
 from api.serializers import DynamicFieldsModelSerializer
 from api.vendor.models import Venue
 from api.vendor.serializers import VenueImageSerializer
+from config.tasks import async_push_notification
 
 
 class SlotSerializer(serializers.ModelSerializer):
@@ -38,6 +40,16 @@ class StatusSerializer(serializers.ModelSerializer):
             "created_on",
             "status"
         )
+
+    def create(self, validated_data):
+        status = BookingStatus.objects.create(**validated_data)
+        if status.status in ['confirmed', 'cancelled']:
+            args = {
+                "name": status.booking.venue.name,
+            }
+            title, body = get_push_notification_content(status.status, **args)
+            fcm = status.booking.customer.fcm
+            async_push_notification(title, body, fcm, data={})
 
 
 class VenueSerializer(DynamicFieldsModelSerializer):
@@ -77,7 +89,7 @@ class BookingSerializer(DynamicFieldsModelSerializer):
     last_name = serializers.CharField()
     phone = serializers.CharField()
     amount = serializers.FloatField(read_only=True)
-    slots = SlotSerializer(many=True,default=None)
+    slots = SlotSerializer(many=True, default=None)
     venue = VenueSerializer(read_only=True)
     booking_status = StatusSerializer(read_only=True, many=True)
 

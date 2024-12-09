@@ -4,9 +4,10 @@ from functools import reduce
 
 from django.db import transaction
 
+from api.bookings.messages_content import get_push_notification_content, MsgTyp
 from api.bookings.models import Booking, BookingSlots
 from api.vendor.models import Venue
-from config.tasks import cancel_booking
+from config.tasks import cancel_booking, async_push_notification
 from config.utils import calaculate_hours
 
 
@@ -14,6 +15,7 @@ class BookingsBuilder(ABC):
     def __init__(self, validated_data):
         self.data = validated_data
         self.booking = None
+        self.slot = None
 
     def checking_slot_availability(self):
         if BookingSlots.is_booking_already_exists(
@@ -59,7 +61,12 @@ class CustomerBookingBuilder(BookingsBuilder):
             cancel_booking.apply_async(args=[booking.id], countdown=int(eval(os.getenv("BOOKING_DELETE_COUNT_DOWN"))))
 
     def notify(self):
-        pass
+        args = {
+            "name": self.booking.venue.name,
+        }
+        title, body = get_push_notification_content(MsgTyp.booking_created, **args)
+        fcm = self.booking.customer.fcm
+        async_push_notification(title, body, fcm, data={})
 
 
 class VendorBookingBuilder(BookingsBuilder):

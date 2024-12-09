@@ -12,7 +12,7 @@ from api.bookings.models import Booking, BookingSlots, Reviews
 from api.permissions import IsVendorAuthenticated
 from api.vendor.models import Vendor, Venue, Slots
 from api.vendor.selector import SlotsList
-from api.vendor.serializers import VenueImageSerializer, VenueSerializer, SlotSerializer
+from api.vendor.serializers import VenueImageSerializer, VenueSerializer, SlotSerializer, VendorSerializer
 from api.vendor.service import create_vendor, create_venues
 from api.views import APIView, BaseAPIView
 from rest_framework import serializers, status
@@ -459,42 +459,42 @@ class VenuesSlotView(BaseAPIView):
                 description=str(e)
             )
 
-    # def delete(self, request, pk):
-    #     try:
-    #         is_updated = Venue \
-    #             .objects \
-    #             .filter(is_active=True, id=pk) \
-    #             .update(is_active=False)
-    #         if is_updated:
-    #             Product.objects.filter(company_id=pk).update(company_id=None)
-    #
-    #         else:
-    #             return self.send_response(
-    #                 success=False,
-    #                 code='422',
-    #                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-    #                 description=_('Company Does`t Exist')
-    #             )
-    #
-    #         return self.send_response(
-    #             success=True,
-    #             code=f'201',
-    #             status_code=status.HTTP_201_CREATED,
-    #             description=_('Company deleted Successfully')
-    #         )
-    #
-    #     except Company.DoesNotExist:
-    #         return self.send_response(
-    #             success=False,
-    #             code='422',
-    #             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-    #             description=_('Category Does`t Exist')
-    #         )
-    #     except Exception as e:
-    #         return self.send_response(
-    #             success=False,
-    #             description=str(e)
-    #         )
+    def delete(self, request, pk):
+        try:
+            query = BookingSlots.objects \
+                .filter(
+                slot_id=pk,
+                booking__booking_status__status__in=['pending', 'confirmed'],
+                date__gte=datetime.datetime.now().date()
+            )
+
+            if query.exists():
+                return self.send_response(
+                    success=False,
+                    description='slot cant be delete '
+                )
+
+            Slots.objects.get(id=pk).delete()
+
+            return self.send_response(
+                success=True,
+                code=f'201',
+                status_code=status.HTTP_201_CREATED,
+                description=_('Company deleted Successfully')
+            )
+
+        except Slots.DoesNotExist:
+            return self.send_response(
+                success=False,
+                code='422',
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                description=_('Slots Does`t Exist')
+            )
+        except Exception as e:
+            return self.send_response(
+                success=False,
+                description=str(e)
+            )
 
 
 class SlotAvailabilityView(BaseAPIView):
@@ -612,3 +612,146 @@ class DashboardView(BaseAPIView, ):
             return self.send_response(
                 success=False,
                 description=str(e))
+
+
+class ProfileView(BaseAPIView):
+    """
+    API View for Login Super Admin and Admin
+    """
+    authentication_classes = (OAuth2Authentication,)
+    permission_classes = (IsVendorAuthenticated,)
+
+    def get(self, request):
+        try:
+            # query = User.objects.get(id=pk)
+            serializer = VendorSerializer(request.user)
+            return self.send_response(
+                success=True,
+                status_code=status.HTTP_200_OK,
+                payload=serializer.data
+            )
+        except Vendor.DoesNotExist:
+            return self.send_response(
+                code=f'422',
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                description="User doesn't exist"
+            )
+        except FieldError:
+            return self.send_response(
+                code=f'500',
+                description="Cannot resolve keyword given in 'order_by' into field"
+            )
+        except Exception as e:
+            if hasattr(e.__cause__, 'pgcode') and e.__cause__.pgcode == '23505':
+                return self.send_response(
+                    code=f'422',
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    description="User with this email already exists in the system."
+                )
+            else:
+                return self.send_response(
+                    code=f'500',
+                    description=e
+                )
+
+    def put(self, request, pk=None):
+        """
+        In this api, only **Super Admin** and **Local Admin** can login. Other users won't be able to login through this API.
+        **Mandatory Fields**
+        * email
+        * password
+        """
+        try:
+            user_data = request.user
+            # user = User
+            serializer = VenueSerializer(
+                instance=user_data,
+                data=request.data
+            )
+            if serializer.is_valid():
+                serializer.save()
+                return self.send_response(
+                    success=True,
+                    code=f'200',
+                    status_code=status.HTTP_200_OK,
+                    payload=VenueSerializer(serializer.instance).data,
+                    description=_("User Updated Successfully"),
+                )
+            else:
+                return self.send_response(
+                    success=True,
+                    code=f'422',
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    description=serializer.errors,
+                )
+
+        except Vendor.DoesNotExist:
+            return self.send_response(
+                code=f'422',
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                description=_("User doesn't exist")
+            )
+        except FieldError:
+            return self.send_response(
+                code=f'500',
+                description="Cannot resolve keyword given in 'order_by' into field"
+            )
+        except Exception as e:
+            if hasattr(e.__cause__, 'pgcode') and e.__cause__.pgcode == '23505':
+                return self.send_response(
+                    code=f'422',
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    description=_("User with this email already exists in the system.")
+                )
+            else:
+                return self.send_response(
+                    code=f'500',
+                    description=e
+                )
+
+
+class UpdateProfileImageView(BaseAPIView):
+    authentication_classes = (OAuth2Authentication,)
+    permission_classes = (IsVendorAuthenticated,)
+
+    def put(self, request, pk=None):
+        """
+        In this api, only **Super Admin** and **Local Admin** can login. Other users won't be able to login through this API.
+        **Mandatory Fields**
+        * email
+        * password
+        """
+        try:
+            request.user.image = request.data["image"]
+            request.user.save()
+            return self.send_response(
+                success=True,
+                code=f'200',
+                status_code=status.HTTP_200_OK,
+                description=_("Image Uploaded"),
+            )
+
+
+        except Vendor.DoesNotExist:
+            return self.send_response(
+                code=f'422',
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                description=_("User doesn't exist")
+            )
+        except FieldError:
+            return self.send_response(
+                code=f'500',
+                description="Cannot resolve keyword given in 'order_by' into field"
+            )
+        except Exception as e:
+            if hasattr(e.__cause__, 'pgcode') and e.__cause__.pgcode == '23505':
+                return self.send_response(
+                    code=f'422',
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    description=_("User with this email already exists in the system.")
+                )
+            else:
+                return self.send_response(
+                    code=f'500',
+                    description=e
+                )

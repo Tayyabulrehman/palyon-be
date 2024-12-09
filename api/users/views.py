@@ -30,6 +30,7 @@ from api.users.serializers import UserSerializer
 from api.views import BaseAPIView
 from rest_framework.serializers import ModelSerializer
 
+from config.tasks import send_sms_brevo
 from config.utils import parse_email, boolean
 
 
@@ -143,47 +144,33 @@ class ForgotPasswordView(BaseAPIView):
 
     def post(self, request, pk=None):
         try:
-            if request.data['email'] == "" or None:
-                return self.send_response(
-                    code=f'422',
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    description=_("Email required")
-                )
-            else:
-                WEB_URL = os.getenv('WEB_URL')
-                user = User.objects.get(email__exact=parse_email(request.data['email']))
-                obj = EmailVerificationLink.add_email_token_link(user)
-                # send_email_sendgrid_template.delay(
-                #                              to_email=user.email,
-                #                              data={
-                #                                  "first_name": user.first_name,
-                #                                  "last_name":user.last_name,
-                #                                    "link": f'{WEB_URL}account/reset-password/{obj.token}'}
-                #                              ,
-                #                              template=os.getenv("FORGOT_EMAIL_TEMPLATE")
-                #                              )
+            user = User.objects.get(username__exact=request.data.get("phone"))
 
-                # send_SMS(
-                #     from_=settings.SUPPORT_PHONE,
-                #     to_=user.phone,
-                #     body={"this is testing msg"}
-                # )
+            email_link = EmailVerificationLink.generate_verification_code(user, days=1, )
 
-                return self.send_response(
-                    success=True,
-                    code=f'201',
-                    status_code=status.HTTP_201_CREATED,
-                    description=_("Forgot Password mail sent successfully"),
-                )
+            # send_sms_brevo(
+            #     recipient=email_link.user.username,
+            #     content=f"Your Password Reset Code is {email_link.code} \n"
+            #             f" If you didn’t request a password reset, please ignore this message or contact support."
+            # )
+            message = _("Reset password code has been sent to your phone number for verification")
+            return self.send_response(
+                success=True,
+                code='201',
+                status_code=status.HTTP_201_CREATED,
+                description=message,
+            )
+
+
         except User.DoesNotExist:
             return self.send_response(
-                code=f'422',
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                description=_("User does not exists")
+                code="409",
+                status_code=status.HTTP_409_CONFLICT,
+                description=_("User with this phone number does not exists in our system.")
             )
+
         except Exception as e:
             return self.send_response(
-                code=f'500',
                 description=e
             )
 
@@ -231,146 +218,103 @@ class VerifyInvitationLink(BaseAPIView):
             )
 
 
-class UpdatePassword(BaseAPIView):
-    authentication_classes = ()
-    permission_classes = ()
+#
 
-    def post(self, request, pk=None):
-        """
-        In this API, we will validate the **Local Admin** token. Whether it is a valid token, or unexpired.
-        If it is, it will return the user_id using which **Local Admin** will update his/her password
-        """
+
+class UserProfileView(BaseAPIView):
+    """
+    API View for Login Super Admin and Admin
+    """
+    authentication_classes = (OAuth2Authentication,)
+    permission_classes = (IsAdminAuthenticated,)
+
+    def get(self, request):
         try:
-            verify = EmailVerificationLink.objects.get(token=request.data['token'],
-                                                       )
-            if datetime.date(verify.expiry_at) <= datetime.date(datetime.now()):
-                EmailVerificationLink.add_email_token_link(verify.user)
-                verify.delete()
-                return self.send_response(
-                    code=f'422',
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    description=_("The link is expired. New link has been sent to your email")
-                )
-            else:
-                verify.user.set_password(request.data["password"])
-                verify.user.save(update_fields=["password"])
-                verify.delete()
+            # query = User.objects.get(id=pk)
+            serializer = UserSerializer(request.user)
             return self.send_response(
                 success=True,
-                code=f'201',
-                status_code=status.HTTP_201_CREATED,
-                description="Password Updated"
+                status_code=status.HTTP_200_OK,
+                payload=serializer.data
             )
-        except EmailVerificationLink.DoesNotExist:
+        except User.DoesNotExist:
             return self.send_response(
                 code=f'422',
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                description=_("Verification token doesn't exists")
+                description="User doesn't exist"
             )
-        except Exception as e:
+        except FieldError:
             return self.send_response(
                 code=f'500',
-                description=e
+                description="Cannot resolve keyword given in 'order_by' into field"
             )
+        except Exception as e:
+            if hasattr(e.__cause__, 'pgcode') and e.__cause__.pgcode == '23505':
+                return self.send_response(
+                    code=f'422',
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    description="User with this email already exists in the system."
+                )
+            else:
+                return self.send_response(
+                    code=f'500',
+                    description=e
+                )
 
+    def put(self, request, pk=None):
+        """
+        In this api, only **Super Admin** and **Local Admin** can login. Other users won't be able to login through this API.
+        **Mandatory Fields**
+        * email
+        * password
+        """
+        try:
+            user_data = User.objects.get(id=request.user.id)
+            # user = User
+            serializer = UserSerializer(
+                instance=user_data,
+                data=request.data
+            )
+            if serializer.is_valid():
+                serializer.save()
+                return self.send_response(
+                    success=True,
+                    code=f'200',
+                    status_code=status.HTTP_200_OK,
+                    payload=UserSerializer(serializer.instance).data,
+                    description=_("User Updated Successfully"),
+                )
+            else:
+                return self.send_response(
+                    success=True,
+                    code=f'422',
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    description=serializer.errors,
+                )
 
-#
-
-
-# class UserProfileUpdateView(BaseAPIView):
-#     """
-#     API View for Login Super Admin and Admin
-#     """
-#     authentication_classes = (OAuth2Authentication,)
-#     permission_classes = (IsAdminAuthenticated,)
-#
-#     def get(self, request, pk):
-#         try:
-#             query = User.objects.get(id=pk)
-#             serializer = UserSerializer(query)
-#             return self.send_response(
-#                 success=True,
-#                 status_code=status.HTTP_200_OK,
-#                 payload=serializer.data
-#             )
-#         except User.DoesNotExist:
-#             return self.send_response(
-#                 code=f'422',
-#                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-#                 description="User doesn't exist"
-#             )
-#         except FieldError:
-#             return self.send_response(
-#                 code=f'500',
-#                 description="Cannot resolve keyword given in 'order_by' into field"
-#             )
-#         except Exception as e:
-#             if hasattr(e.__cause__, 'pgcode') and e.__cause__.pgcode == '23505':
-#                 return self.send_response(
-#                     code=f'422',
-#                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-#                     description="User with this email already exists in the system."
-#                 )
-#             else:
-#                 return self.send_response(
-#                     code=f'500',
-#                     description=e
-#                 )
-#
-#     def put(self, request, pk=None):
-#         """
-#         In this api, only **Super Admin** and **Local Admin** can login. Other users won't be able to login through this API.
-#         **Mandatory Fields**
-#         * email
-#         * password
-#         """
-#         try:
-#             user_data = User.objects.get(id=request.user.id)
-#             # user = User
-#             serializer = UserSerializer(
-#                 instance=user_data,
-#                 data=request.data
-#             )
-#             if serializer.is_valid():
-#                 serializer.save()
-#                 return self.send_response(
-#                     success=True,
-#                     code=f'200',
-#                     status_code=status.HTTP_200_OK,
-#                     payload=UserSerializer(serializer.instance).data,
-#                     description=_("User Updated Successfully"),
-#                 )
-#             else:
-#                 return self.send_response(
-#                     success=True,
-#                     code=f'422',
-#                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-#                     description=serializer.errors,
-#                 )
-#
-#         except User.DoesNotExist:
-#             return self.send_response(
-#                 code=f'422',
-#                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-#                 description=_("User doesn't exist")
-#             )
-#         except FieldError:
-#             return self.send_response(
-#                 code=f'500',
-#                 description="Cannot resolve keyword given in 'order_by' into field"
-#             )
-#         except Exception as e:
-#             if hasattr(e.__cause__, 'pgcode') and e.__cause__.pgcode == '23505':
-#                 return self.send_response(
-#                     code=f'422',
-#                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-#                     description=_("User with this email already exists in the system.")
-#                 )
-#             else:
-#                 return self.send_response(
-#                     code=f'500',
-#                     description=e
-#                 )
+        except User.DoesNotExist:
+            return self.send_response(
+                code=f'422',
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                description=_("User doesn't exist")
+            )
+        except FieldError:
+            return self.send_response(
+                code=f'500',
+                description="Cannot resolve keyword given in 'order_by' into field"
+            )
+        except Exception as e:
+            if hasattr(e.__cause__, 'pgcode') and e.__cause__.pgcode == '23505':
+                return self.send_response(
+                    code=f'422',
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    description=_("User with this email already exists in the system.")
+                )
+            else:
+                return self.send_response(
+                    code=f'500',
+                    description=e
+                )
 
 
 class UserProfilePasswordView(BaseAPIView):
@@ -467,7 +411,7 @@ class UserView(BaseAPIView):
             if pk:
                 query_set &= Q(id=pk)
                 query = User.objects.get(query_set)
-                serializer=UserSerializer(query)
+                serializer = UserSerializer(query)
                 # if query.role.code == AccessLevel.CUSTOMER_CODE:
                 #     serializer = CustomerSerializer(query)
                 # else:
@@ -509,3 +453,86 @@ class UserView(BaseAPIView):
             return self.send_response(
                 success=False,
                 description=e)
+
+
+class ResetAPIPassword(BaseAPIView):
+    authentication_classes = ()
+    permission_classes = ()
+
+    def post(self, request, pk=None):
+        """
+        """
+        try:
+
+            code = request.data.get('code')
+            # token = request.data.get('token')
+            user = User.objects.get(
+                user_email_verification__code__exact=code,
+
+            )
+            password = request.data['password']
+            user.set_password(password)
+            user.save()
+            EmailVerificationLink.objects.get(code=request.data.get('code')).delete()
+            message = _("Password Reset Successfully.")
+            return self.send_response(
+                success=True,
+                status_code=status.HTTP_201_CREATED,
+                description=message
+            )
+
+        except User.DoesNotExist:
+            return self.send_response(
+                code="409",
+                status_code=status.HTTP_409_CONFLICT,
+                description=_("The link has been used before. Please try to reset your password again.")
+            )
+        except Exception as e:
+            return self.send_response(
+                description=e
+            )
+
+
+
+class SyncFCMTokenView(BaseAPIView):
+    """
+    API View for Login Super Admin and Admin
+    """
+    authentication_classes = (OAuth2Authentication,)
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request,token):
+        try:
+            # query = User.objects.get(id=pk)
+            request.user.fcm=token
+            request.user.save()
+            return self.send_response(
+                success=True,
+                status_code=status.HTTP_200_OK,
+                description="FCM token synced successfully."
+
+            )
+        except User.DoesNotExist:
+            return self.send_response(
+                code=f'422',
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                description="User doesn't exist"
+            )
+        except FieldError:
+            return self.send_response(
+                code=f'500',
+                description="Cannot resolve keyword given in 'order_by' into field"
+            )
+        except Exception as e:
+            if hasattr(e.__cause__, 'pgcode') and e.__cause__.pgcode == '23505':
+                return self.send_response(
+                    code=f'422',
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    description="User with this email already exists in the system."
+                )
+            else:
+                return self.send_response(
+                    code=f'500',
+                    description=e
+                )
+

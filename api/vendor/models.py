@@ -1,6 +1,5 @@
 from enum import Enum
 
-from django.contrib.gis.db.models import PointField
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -18,7 +17,7 @@ class Vendor(User):
     # meta_data = models.OneToOneField('users.User', on_delete=models.CASCADE, null=True, related_name='user_vendor')
     business_name = models.CharField(max_length=255)
     owner_name = models.CharField(max_length=255)
-    phone = models.CharField(max_length=15)
+    image = models.ImageField(null=True, upload_to='vendor-profile/')
 
     class Meta:
         db_table = 'vendor'
@@ -31,13 +30,15 @@ class Venue(Log):
     vendor = models.ForeignKey(Vendor, on_delete=models.CASCADE, null=True, related_name='vendor_grounds', )
     name = models.CharField(max_length=255, null=True)
     location = models.CharField(max_length=255, null=True)
-    latitude = models.FloatField(null=True,default=0.0)
-    longitude = models.FloatField(null=True,default=0.0)
+    latitude = models.FloatField(null=True, )
+    longitude = models.FloatField(null=True)
     price = models.FloatField(default=0.0)
     active = models.BooleanField(default=True)
     description = models.TextField(null=True)
     type = ArrayField(base_field=models.CharField(max_length=255), null=True)
     deleted = models.BooleanField(default=False)
+    facilities = ArrayField(base_field=models.CharField(max_length=255), null=True)
+
     # loc = PointField(null=True)
 
     class Meta:

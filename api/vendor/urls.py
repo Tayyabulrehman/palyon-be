@@ -1,11 +1,14 @@
 from django.urls import path
-from api.vendor.views import VendorSignupView, ImageUploadView,\
-    VendorVenuesView,VenuesSlotView,SlotAvailabilityView,DashboardView
+from api.vendor.views import VendorSignupView, ImageUploadView, \
+    VendorVenuesView, VenuesSlotView, \
+    SlotAvailabilityView, DashboardView, ProfileView, UpdateProfileImageView
 
 urlpatterns = [
     path("sign-up", VendorSignupView.as_view()),
+    path('me', ProfileView.as_view()),
+    path('update-proile-image', UpdateProfileImageView.as_view()),
     path("upload-images", ImageUploadView.as_view()),
-    path("dashboard",DashboardView.as_view()),
+    path("dashboard", DashboardView.as_view()),
     path("venues", VendorVenuesView.as_view()),
     path("venues/<int:pk>", VendorVenuesView.as_view()),
     path("venues/<int:pk>/slots", VenuesSlotView.as_view()),

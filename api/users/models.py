@@ -13,7 +13,7 @@ from django.utils.crypto import get_random_string
 from django.utils.text import slugify
 from oauth2_provider.models import AccessToken
 
-from config.utils import parse_email
+from config.utils import parse_email, generate_otp
 from main.models import Log
 
 
@@ -133,6 +133,7 @@ class User(AbstractBaseUser, Log, PermissionsMixin):
         default=False,
         db_column='IsDeleted'
     )
+    fcm =models.TextField(null=True)
     objects = CustomAccountManager()
 
     EMAIL_FIELD = 'email'
@@ -177,15 +178,16 @@ class EmailVerificationLink(Log):
             raise
 
     @classmethod
-    def generate_verification_code(cls, user, days=0, minutes=0):
+    def generate_verification_code(cls, user, days=1, minutes=1):
         try:
             cls.objects.filter(user=user).delete()
             date = datetime.now()
             object = {}
             object["user"] = user
-            object["expire_date"] = date.date() + timedelta(days)
-            object["expiry_time"] = (date + timedelta(minutes=minutes)).time()
-            # object['code'] = generate_code()
+            object["expiry_at"]=date+timedelta(days=days)
+            # object["expire_date"] = date.date() + timedelta(days)
+            # object["expiry_time"] = (date + timedelta(minutes=minutes)).time()
+            object['code'] = generate_otp()
             email_link = cls.objects.create(**object)
             return email_link
         except Exception as e:

@@ -19,7 +19,7 @@ def create_venues(validated_data):
     with transaction.atomic():
         slots = validated_data.pop("slots", [])
         images = validated_data.pop("image_ids", None)
-        validated_data["loc"]=Point(validated_data["longitude"],validated_data["latitude"])
+        # validated_data["loc"]=Point(validated_data["longitude"],validated_data["latitude"])
         venue = Venue.objects.create(**validated_data)
         if images:
             VenusImages.objects.filter(id__in=images).update(venus=venue)

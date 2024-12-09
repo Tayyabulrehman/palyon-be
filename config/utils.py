@@ -5,6 +5,7 @@ import io
 import json
 import os
 import random
+import secrets
 from datetime import time
 
 import tempfile
@@ -12,6 +13,7 @@ import tempfile
 import uuid
 import zipfile
 
+import firebase_admin
 import stripe
 from django.contrib.staticfiles.storage import staticfiles_storage
 from concurrent.futures.thread import ThreadPoolExecutor
@@ -191,7 +193,7 @@ class FCMNotifications(metaclass=SingletonMetaclass):
 
     def __init__(self):
         self.cred = credentials.Certificate(
-            staticfiles_storage.path('playon-6dfe3-firebase-adminsdk-1zok1-8855bf7152'))
+            staticfiles_storage.path('playon-6dfe3-firebase-adminsdk-1zok1-8855bf7152.json'))
         firebase_admin.initialize_app(self.cred)
 
     def send_fcm_notification(self, token, title, body, data):
@@ -249,3 +251,6 @@ def generate_time_slots(start, end):
 
 
 
+def generate_otp(length=6):
+    # Generate a random OTP of the specified length
+    return ''.join(str(secrets.randbelow(10)) for _ in range(length))
